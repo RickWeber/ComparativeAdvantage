@@ -1,10 +1,49 @@
+# Comparative Advantage
+# An agent based model of a barter economy with
+# N agents producing, exchanging, and consuming
+# K goods
+#
 # Libraries
 import numpy as np
 import pandas as pd
+from mesa import Model
 from mesa import Agent
-import copy
-# from model import compare
-# from functools import reduce
+from mesa.time import RandomActivation
+
+
+class Market(Model):
+    def __init__(self, N, K):
+        super().__init__()
+        self.N = N
+        self.K = K
+        self.schedule = RandomActivation(self)
+        self.history = pd.DataFrame({
+            "partner1": [],
+            "partner2": [],
+            "deal": [],
+            "trades": []
+        })
+        self.trades_undertaken = 0
+        self.possible_trades = self.generates_trades(K)
+        # create agents
+        for i in range(N):
+            a = BarterAgent(self.next_id(), self)
+            self.schedule.add(a)
+
+    def step(self):
+        self.schedule.step()
+
+    def generate_possible_trades(self, K):
+        poss_trades = [(x, y) for x in range(K) for y in range(K) if x != y]
+        poss_trades = pd.DataFrame(poss_trades)
+        poss_trades.rename(columns={'0': 'buy', '1': 'sell'}, inplace=True)
+        return poss_trades
+
+
+class Exchange():
+    """A class to hold on to trade details"""
+    def __init__(self):
+        self.done = False
 
 
 class BarterAgent(Agent):
@@ -23,18 +62,21 @@ class BarterAgent(Agent):
         self.endowment = np.random.randint(10, 20, model.K)
         u_params = np.random.randint(1, 4, model.K)
         self.u_params = u_params / u_params.sum()
-        self.history = pd.DataFrame({
-            "initiator": [],
-            "partner": [],
-            "deal": [],
-            "trades": []
-        })
         self.trades_done = 0
         self.cumulative_utility = 0
+        self.memory = 10
+
+    def history(self):
+        full_history = self.model.history
+        my_buys = full_history["partner1" == self]
+        my_sells = full_history["partner2" == self]
+        my_history = my_buys.row_join(my_sells)  # FIX
+        return my_history
 
     def step(self):
         self.produce()
-        self.trade(self.find_partner())
+        partner = self.find_partner()
+        self.trade(partner)
         self.consume()
 
     def produce(self, factor=1):
@@ -60,6 +102,7 @@ class BarterAgent(Agent):
             self.cumulative_utility += self.u_params[e]
         return self
 
+    ### Work on stuff below ###
     def trade(self, partner, complexity=1):
         prob = self.trades / self.trades.sum()
         index = np.random.randint(range(self.model.possible_trades.size[0]),
@@ -180,3 +223,32 @@ class BarterAgent(Agent):
         key = np.random.choice(options, 1, p=prob)
         value = 1
         return {key: value}
+
+
+def utility_reporter(agent):
+    """How much utility does agent have right now?"""
+    return agent.utility()
+
+
+def specialization_reporter(agent):
+    """How much of agent's time is spent on their most popular good?"""
+    return agent.prod_plan.max() / agent.prod_plan.sum()
+
+
+def compare(vect, basis):
+    """Compare a vector to some basis. Used to map a deal and an agent's ppf
+    to a real number. If that number is positive, it means they come out ahead
+    on the deal relative to no ability to trade."""
+    out = vect * (basis[0] / basis)
+    return out.sum()  # check this.
+
+
+def easy_model():
+    model = Market(2, 2)
+    agent0 = model.schedule.agents[0]
+    agent1 = model.schedule.agents[1]
+    agent0.u_params = np.array([1/2, 1/2])
+    agent1.u_params = np.array([1/2, 1/2])
+    agent0.ppf = np.array([4, 1])
+    agent1.ppf = np.array([1, 4])
+    return model

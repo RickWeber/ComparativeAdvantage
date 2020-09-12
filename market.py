@@ -3,9 +3,9 @@ import pandas as pd
 from mesa import Model
 from mesa.time import RandomActivation
 from mesa.datacollection import DataCollector
-from agents import BarterAgent
-from model import utility_reporter
-from model import specialization_reporter
+from agent import BarterAgent
+# from model import utility_reporter
+# from model import specialization_reporter
 
 
 class Market(Model):
@@ -14,8 +14,8 @@ class Market(Model):
     """
     def __init__(self, N, K):
         super().__init__()
-        self.N = N
-        self.K = K
+        self.N = int(N)
+        self.K = int(K)
         self.schedule = RandomActivation(self)
         self.history = pd.DataFrame({
             "initiator": [],
