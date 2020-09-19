@@ -12,6 +12,103 @@ from mesa.time import RandomActivation
 import copy
 
 
+# Here's a dumb idea: I'm going to just rebuild my classes with new names...
+class mkt(Model):
+    def __init__(self, N, K):
+        super().__init_()
+        self.N = N
+        self.K = K
+        self.consume = False
+        self.trade = True
+        self.schedule = RandomActivation(self)
+
+    def make_trade(partner1, partner2):
+        """Decide the terms,
+        verify that it's beneficial,
+        then update appropriately"""
+        give = partner1.prod * partner1.ppf
+        take = partner2.prod * partner2.ppf
+        if partner1.has(give) and partner2.has(take):
+            partner1.endowment += take
+            partner1.endowment -= give
+            partner2.endowment -= take
+            partner2.endowment += give
+        # update production plans
+        learning_rate = 0.05
+        delta1 = give - take
+        partner1.prod_plan += delta1 * learning_rate
+        partner1.prod_plan = partner1.prod_plan / partner1.prod_plan.sum()
+        delta2 = take - give
+        partner2.prod_plan += delta2 * learning_rate
+        partner2.prod_plan = partner2.prod_plan / partner2.prod_plan.sum()
+
+    def step(self):
+        self.schedule.step()
+        self.consume = (self.schedule.steps % 5 == 0)
+
+
+class ant(Agent):
+    def __init__(self, unique_id, model):
+        super().__init__(unique_id, model)
+        self.endowment = np.random.randint(10, 20, model.K)
+        self.ppf = np.random.randint(1, 4, model.K)
+        prod_plan = np.ones(model.K)
+        self.prod_plan = prod_plan / prod_plan.sum()
+        self.prices = self.ppf[0] / self.ppf  # good 0 as numeraire
+        u_params = np.random.randint(1, 4, model.K)
+        self.u_params = u_params / u_params.sum()
+        self.trades_undertaken = 0
+        self.cumulative_utility = 0
+        self.memory = 10
+        self.age = 0
+
+    def step(self):
+        self.age += 1
+        self.produce()
+        partner = self.find_partner()
+        if self.model.trade:
+            self.trade(partner)
+        if self.model.consume:
+            self.consume()
+
+    def produce(self):
+        prod = self.prod * self.ppf
+        self.endowment += prod
+        return self
+
+    def find_partner(self):
+        p = np.random.randint(self.model.schedule.get_agent_count())
+        if p > 1:
+            partner = self.model.schedule.agents[p]
+            if partner == self:
+                partner = self.find_partner()
+            return partner
+        else:
+            return self
+
+    def trade(self, partner):
+        self.model.make_trade(self, partner)
+        return self
+
+    def consume(self, units=5):
+        """Use up goods based on weighted probability"""
+        # Don't risk going negative
+        if self.endowment.min() < units:
+            return self
+        probs = self.u_params
+        eat = np.random.choice(range(self.model.K),
+                               size=units,
+                               replace=True, p=probs)
+        for e in eat:
+            self.endowment[e] -= 1
+            # this is sort of a goofy way to track utility. I'll fix it later
+            self.cumulative_utility += self.u_params[e]
+        return self
+
+    def utility(self):
+        return (self.endowment ** self.u_params).sum()
+
+
 class Market(Model):
     def __init__(self, N, K):
         super().__init__()
@@ -69,8 +166,13 @@ class BarterAgent(Agent):
              for y in range(model.K)
              if x != y]
         )
-        self.prices = [self.ppf[y]/self.ppf[x]
-                       for (x, y) in model.possible_trades]
+        p = model.possible_trades.shape[0]
+        self.prices = np.array(shape=p)
+        for i in p:
+            buy = model.possible_trades[i, 0]
+            sell = model.possible_trades[i, 1]
+            price = sell/buy
+            self.prices.iloc[i] = price
         self.endowment = np.random.randint(10, 20, model.K)
         u_params = np.random.randint(1, 4, model.K)
         self.u_params = u_params / u_params.sum()
