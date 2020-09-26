@@ -5,11 +5,8 @@
 #
 # Libraries
 import numpy as np
-import pandas as pd
-from mesa import Model
-from mesa import Agent
+from mesa import Model, Agent
 from mesa.time import RandomActivation
-import copy
 
 
 class mkt(Model):
@@ -20,9 +17,13 @@ class mkt(Model):
         self.consume = False
         self.trade = True
         self.solo_update = True
+        self.money = False  # if True, use good 0 as numeraire
+        self.history = []
         self.schedule = RandomActivation(self)
-        for a in range(N):
-            a = ant(self.next_id(), self)
+        for a in range(self.N):  # tidy this up
+            id = self.next_id()
+            id = a
+            a = ant(id, self)
             self.schedule.add(a)
 
     def make_trade(partner1, partner2):
@@ -49,6 +50,43 @@ class mkt(Model):
     def step(self):
         self.schedule.step()
         self.consume = (self.schedule.steps % 5 == 0)
+
+
+class transfer(exchange):
+    def __init__(self, sender, recipient, goods, model):
+        super().__init__()
+        self.model = model
+        self.sender = sender
+        self.recipient = recipient
+        self.goods = goods
+
+    def undertake(self):
+        self.sender.endowment -= self.goods
+        self.recipient.endowment += self.goods
+        self.model.history.append(self)
+
+class exchange():
+    def __init__(self, partners, goods, model):
+        self.model = model
+        self.partners = partners
+        self.goods = goods
+
+
+class trd():
+    def __init__(self, model, **trades):
+        self.model = model
+        self.partners = trades.keys
+        self.items = trades.values != 0
+        self.quantities = trades.values
+
+    def evaluate(self):
+        return True
+
+    def undertake(self):
+        for p in self.partners:
+            for i in self.items:
+                p.endowment[i] += self.quantities[i]
+        # update plans
 
 
 class ant(Agent):
@@ -120,28 +158,21 @@ class ant(Agent):
     def utility(self):
         return (self.endowment ** self.u_params).sum()
 
-    # def my_history(self):
-    #     history = self.model.history
-    #     with_me = history[["partner1", "partner2"]] == self
-    #     history[with_me]
-
-
-# def utility_reporter(agent):
-#     """How much utility does agent have right now?"""
-#     return agent.utility()
-
-
-# def specialization_reporter(agent):
-#     """How much of agent's time is spent on their most popular good?"""
-#     return agent.prod_plan.max() / agent.prod_plan.sum()
-
-
-# def compare(vect, basis):
-#     """Compare a vector to some basis. Used to map a deal and an agent's ppf
-#     to a real number. If that number is positive, it means they come out ahead
-#     on the deal relative to no ability to trade."""
-#     out = vect * (basis[0] / basis)
-#     return out.sum()  # check this.
+    def new_trade(self, partner):
+        buyer_gives = np.random.choice(range(self.model.K))
+        seller_gives = np.random.choice(range(self.model.K))
+        while seller_gives == buyer_gives:
+            seller_gives = np.random.choice(range(self.model.K))
+        q_sell = min(partner.ppf[seller_gives], partner.endowment[seller_gives])
+        q_buy = min(self.ppf[buyer_gives], self.endowment[buyer_gives])
+        ratio = q_buy / q_sell
+        buyer_tradeoff = self.ppf[seller_gives] / self.ppf[buyer_gives]
+        seller_tradeoff = partner.ppf[buyer_gives] / partner.ppf[seller_gives]
+        if ratio > buyer_tradeoff or ratio < seller_tradeoff:
+            q_sell = 0
+            q_buy = 0
+        # update endowments
+        # update production plans
 
 
 def easy_model():
@@ -155,5 +186,5 @@ def easy_model():
     return model
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     mod = easy_model()
