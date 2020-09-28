@@ -22,7 +22,7 @@ class mkt(Model):
         self.schedule = RandomActivation(self)
         for a in range(self.N):  # tidy this up
             id = self.next_id()
-            id = a
+            # id = a
             a = ant(id, self)
             self.schedule.add(a)
 
@@ -50,43 +50,6 @@ class mkt(Model):
     def step(self):
         self.schedule.step()
         self.consume = (self.schedule.steps % 5 == 0)
-
-
-class transfer(exchange):
-    def __init__(self, sender, recipient, goods, model):
-        super().__init__()
-        self.model = model
-        self.sender = sender
-        self.recipient = recipient
-        self.goods = goods
-
-    def undertake(self):
-        self.sender.endowment -= self.goods
-        self.recipient.endowment += self.goods
-        self.model.history.append(self)
-
-class exchange():
-    def __init__(self, partners, goods, model):
-        self.model = model
-        self.partners = partners
-        self.goods = goods
-
-
-class trd():
-    def __init__(self, model, **trades):
-        self.model = model
-        self.partners = trades.keys
-        self.items = trades.values != 0
-        self.quantities = trades.values
-
-    def evaluate(self):
-        return True
-
-    def undertake(self):
-        for p in self.partners:
-            for i in self.items:
-                p.endowment[i] += self.quantities[i]
-        # update plans
 
 
 class ant(Agent):
