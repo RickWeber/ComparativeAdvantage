@@ -50,9 +50,68 @@ to go
 end
 
 
-;;;;;;;;;;;;;;;;;;;;;
-;;;;; Procedures ;;;;
-;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;; Convenience Functions ;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; add a constant amount to each element of a vector
+; so the smallest element is +1
+to-report all_positive [ vect ]
+  let diff abs min vect
+  if min vect < 0 [
+    set vect map [a -> a + diff + 1] vect
+  ]
+  report vect
+end
+
+to-report softmax [ lst ]
+  let S sum lst
+  report map [ l -> l / S ] lst
+end
+
+to-report exponential_smooth [ alpha past present ]
+  report alpha * present + (1 - alpha) * past
+end
+
+to-report vect_diff [ vect1 vect2 ]
+  if length vect1 != length vect2 [report vect1]
+  report (map [[a b] -> a - b] vect1 vect2)
+end
+
+to-report vect_add [ vect1 vect2 ]
+  if length vect1 != length vect2 [report vect1]
+  report (map [[a1 a2] -> a1 + a2] vect1 vect2)
+end
+
+to-report negate [ vect ]
+  report (map [ v -> 0 - v ] vect )
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;; Genetic Functions ;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report mutate_trade [ trade_vect ]
+  ;; given a link's value for 'trade' (a vector of positive and negative quantities of goods)
+  ;; return a copy with some modification
+  let mutation n-values goods [ round random-normal 0 1 ]
+  report all_positive (map [[t m] -> t + m] trade_vect mutation)
+end
+
+to-report mate_deal [ deal1 deal2 ]
+  let cross_over random goods
+  let out list sublist deal1 0 cross_over sublist deal2 (cross_over + 1) goods
+  report out
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;; Trade functions ;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report reverse_deal [ dealio ] ;; replace with negate
+  report negate dealio
+end
+
 
 to trade
   let partner find_partner
@@ -66,8 +125,8 @@ to trade
   undertake chosen_deal
   update chosen_deal
   ask partner [
-    undertake reverse_deal chosen_deal
-    update reverse_deal chosen_deal
+    undertake negate chosen_deal
+    update negate chosen_deal
   ]
   ask out-link-to partner [
     set strength strength + 1
@@ -75,38 +134,31 @@ to trade
   ]
 end
 
-
-to update_trade?
-  ; if min endowment isn't high enough, don't trade
-  let M min [endowment] of self
-  set trade? M > 25
-end
-
-to produce
-;  let sumP sum prod_plan
-;  let production (map [ prod -> prod / sumP ] prod_plan)
-;  let production soft_max prod_plan
-  let production (map [ [plan poss] -> plan * poss ] softmax prod_plan ppf)
-  set endowment (map [ [en pr] -> en + pr ] endowment production)
-end
-
-to consume
-  ; eat up some of the resources
-end
-
 to undertake [ dealio ]
   set endowment (map [ [en dl] -> en + dl ] endowment dealio)
 end
+
+to-report choose_best_deal [ deal1 deal2 ]
+  report deal1
+end
+
+to-report evaluate_deal [ dealio ]
+  let U utility
+  undertake dealio
+  let out utility - U
+  undertake reverse_deal dealio
+  report out
+end
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;; Strategy functions ;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to update [ dealio ]
   ; start simple. Make this function more complicated later...
   let delta (map [ dl -> dl * learning_rate ] dealio)
   set prod_plan (map [ [prod d ] -> max list 1 prod + d ] prod_plan delta)
-end
-
-to mutate_prod
-  let delta mutate_trade n-values goods [ 0 ]
-  set prod_plan all_positive (map [ [prod d ] -> max list 1 prod + d ] prod_plan delta)
 end
 
 to solo_update
@@ -132,69 +184,56 @@ to solo_update
   ask turtles with [clone?] [die]
 end
 
+
+to mutate_prod
+  let delta mutate_trade n-values goods [ 0 ]
+  set prod_plan all_positive (map [ [prod d ] -> max list 1 prod + d ] prod_plan delta)
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;
+;;;;; Procedures ;;;;
+;;;;;;;;;;;;;;;;;;;;;
+
+to update_trade?
+  ; if min endowment isn't high enough, don't trade
+  let M min [endowment] of self
+  set trade? M > 25
+end
+
+to produce
+;  let sumP sum prod_plan
+;  let production (map [ prod -> prod / sumP ] prod_plan)
+;  let production soft_max prod_plan
+  let production (map [ [plan poss] -> plan * poss ] softmax prod_plan ppf)
+  set endowment (map [ [en pr] -> en + pr ] endowment production)
+end
+
+to consume
+  ; eat up some of the resources
+end
+
+
 ;;;;;;;;;;;;;;;;;;;;
 ;;;;; Reporters ;;;;utility
 ;;;;;;;;;;;;;;;;;;;;
 ;
 
-to-report all_positive [ vect ]
-  let diff abs min vect
-  if min vect < 0 [
-    set vect map [a -> a + diff + 1] vect
-  ]
-  report vect
-end
-to-report vect_diff [ vect1 vect2 ]
-  if length vect1 != length vect2 [report vect1]
-  report (map [[a b] -> a - b] vect1 vect2)
-end
-
-to-report vect_add [ vect1 vect2 ]
-  if length vect1 != length vect2 [report vect1]
-  report (map [[a1 a2] -> a1 + a2] vect1 vect2)
-end
-
-to-report softmax [ lst ]
-  let S sum lst
-  report map [ l -> l / S ] lst
-end
 
 to-report find_partner
   report rnd:weighted-one-of other turtles with [trade?] [[strength] of link-with myself]
 end
 
-to-report mutate_trade [ trade_vect ]
-  ;; given a link's value for 'trade' (a vector of positive and negative quantities of goods)
-  ;; return a copy with some modification
-  let mutation n-values goods [ random-normal 0 1 ]
-  report (map [[t m] -> t + m] trade_vect mutation)
-end
 
-to-report mate_deal [ deal1 deal2 ]
-  let cross_over random goods
-  let out list sublist deal1 0 cross_over sublist deal2 (cross_over + 1) goods
-  report out
-end
-
-to-report exponential_smooth [ alpha past present ]
-  report alpha * present + (1 - alpha) * past
-end
-
-to-report choose_best_deal [ deal1 deal2 ]
-  report deal1
-end
-
-to-report evaluate_deal [ dealio ]
-  let U utility
-  undertake dealio
-  let out utility - U
-  undertake reverse_deal dealio
-  report out
-end
-
-to-report reverse_deal [ dealio ]
-  report (map [ d -> 0 - d ] dealio )
-end
 
 to-report utility
   report reduce + (map [ [ n u ] -> n ^ u ] endowment u_params)
@@ -205,141 +244,6 @@ to-report specialization
   let base 1 / goods
   report top / base
 end
-
-
-
-;to max_u_autarky  ; fix to account for ppf slope
-;  let m min u_params
-;  set prod_plan (map [ u -> u / m ] u_params)
-;end
-;
-
-;
-;to trade [attempts]
-;  if attempts < 1 [
-;;    print "no trade"
-;    stop ]
-;  if allow_trade? [
-;;    print "attempting trade"
-;    let partner rnd:weighted-one-of other turtles with [trade?] [[strength] of link-with myself]
-;    if partner != nobody [ trade_with partner attempts]
-;  ]
-;end
-;
-;to trade_with [ partner attempts ]
-;  let buyerGives random goods
-;  let sellerGives random goods
-;  while [ buyerGives = sellerGives ][ set sellerGives random goods ]
-;  let Qb (item buyerGives [ppf] of partner)
-;  let Qs (item sellerGives [ppf] of self)
-;  while [
-;    (Qb > (item buyerGives [endowment] of partner)) or
-;    (Qs > (item sellerGives [endowment] of self))
-;  ][
-;    set Qb Qb / 2
-;    set Qs Qs / 2
-;  ]
-;  let ratio Qb / Qs
-;  let buyertradeoff [tradeoff buyerGives SellerGives] of self
-;  let sellertradeoff [tradeoff sellerGives buyerGives] of partner
-;  let good? false
-;  ; make sure the trade makes sense and enhances utility
-;  if (ratio < buyertradeoff) and (ratio > sellertradeoff) [
-;    set good? (evaluate_trade buyerGives sellerGives Qb Qs) and
-;    ([evaluate_trade sellerGives buyerGives Qs Qb] of partner)
-;  ]
-;  if good? [
-;    undertake_trade buyerGives sellerGives Qb Qs
-;    update_trade?
-;    ask partner [
-;      undertake_trade sellerGives buyerGives Qs Qb
-;      update_trade?
-;    ]
-;    ask link-with partner [
-;      set strength strength + 1
-;      set trade_history lput (list buyerGives sellerGives Qb Qs) trade_history
-;    ]
-;;    print "trade made"
-;    set trades_done trades_done + 1
-;  ]
-;  ; I was getting lower utility with trade enabled until I added this line
-;  ; I suspect I was getting trades to "mess up" production plans relative to
-;  ; max U in autarky
-;  ; but not enough trades to benefit from increased overall productivity.
-;  ; The attempts parameter keeps it from looking for infinite possible trades
-;  ; just in case I get a lone turtle looking for a good trade but with nobody to
-;  ; trade with
-;  if not good? [ trade (attempts - 1)] ; this might slow things down... if the trade isn't good, try a different one.
-;end
-;
-;to-report evaluate_trade [give get q_give q_get]
-;  let base_u [utility] of self
-;  let out false
-;  set endowment replace-item give endowment (item give endowment - q_give)
-;  set endowment replace-item get endowment (item get endowment + q_get)
-;  if [utility] of self >= base_u [set out true]
-;  set endowment replace-item give endowment (item give endowment + q_give)
-;  set endowment replace-item get endowment (item get endowment - q_get)
-;  report out
-
-;end
-;
-;to undertake_trade [give get q_give q_get]
-;  set endowment replace-item give endowment (item give endowment - q_give)
-;  set endowment replace-item get endowment (item get endowment + q_get)
-;  set prod_plan replace-item give prod_plan (item give prod_plan + 1)
-;end
-
-;
-;to update_strategies [ cross_over mutation ]
-;  ;;; run genetic algorithm on a set of strategies a turtle might have.
-;  ;;
-;  let best_score 0
-;  let best_strategy null_strategy
-;  foreach strategies [ the_strategy ->
-;    let score 0
-;    apply_strategy the_strategy
-;    let score utility
-;    if score >= best_score [
-;      set best_score score
-;      set best_strategy the_strategy
-;    ]
-;  ]
-;end
-;
-
-;to-report null_strategy
-;  report n-values strategy_space [0]
-;end
-;
-;to-report create_strategies [ num_strategies ]
-;  report n-values num_strategies random_strategy
-;end
-;
-;to-report apply_strategy [ external_inputs ]
-;  ; allow some input to be mapped to some output
-;  ; inputs:
-;  ;   - my endowment
-;  ;   - partner traits
-;  ;   - time, space, neighbors
-;  ; outputs:
-;  ;   - proposed trade
-;end
-;
-;to-report random_strategy
-;
-;end
-;
-;to-report tradeoff [good1 good2]
-;  let g1 item good1 [ppf] of myself
-;  let g2 item good2 [ppf] of myself
-;  report g1 / g2
-;end
-;
-
-;
-
-;
 @#$#@#$#@
 GRAPHICS-WINDOW
 263
@@ -605,7 +509,7 @@ SWITCH
 194
 allow_trade?
 allow_trade?
-1
+0
 1
 -1000
 
