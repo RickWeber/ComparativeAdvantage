@@ -21,7 +21,7 @@ to setup
   ask turtles [
     create-links-to other turtles [ ; this could me tunable... less connected vs more connected
       set strength 1 ; this could be where it's tuned
-      set deal mutate_trade mutate_trade mutate_trade n-values goods [ 0 ]
+      set deal random_vect goods 2
       set color scale-color blue strength 5 30
       ]
     ]
@@ -87,41 +87,70 @@ to-report negate [ vect ]
   report (map [ v -> 0 - v ] vect )
 end
 
+to-report random_sign
+  ifelse random 2 < 1 [
+    report -1
+  ][
+    report 1
+  ]
+end
+
+to-report random_vect [ len max_num ]
+  report n-values len [ random_sign * random max_num ]
+end
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;; Genetic Functions ;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-to-report mutate_trade [ trade_vect ]
-  ;; given a link's value for 'trade' (a vector of positive and negative quantities of goods)
-  ;; return a copy with some modification
-  let mutation n-values goods [ round random-normal 0 1 ]
-  report all_positive (map [[t m] -> t + m] trade_vect mutation)
+to-report point_mutation_add [ vect ]
+  let m random length vect
+  let x (item m vect) + 1
+  report replace-item m vect x
 end
 
-to-report mate_deal [ deal1 deal2 ]
-  let cross_over random goods
-  let out list sublist deal1 0 cross_over sublist deal2 (cross_over + 1) goods
-  report out
+to-report point_mutation_shrink [ vect ]
+  let m random length vect
+  let x (item m vect) / 2
+  report replace-item m vect x
+end
+
+to-report cross_over_mutation [ vect1 vect2 ]
+  let m random length vect1
+  ; assume vects are the same length
+  let a1 sublist vect1 0 m
+  let a2 sublist vect1 m length vect1
+  let b1 sublist vect2 0 m
+  let b2 sublist vect2 m length vect2
+  let vect3 list a1 b2
+  let vect4 list b1 a2
+  report (list vect1 vect2 vect3 vect4)
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;; Trade functions ;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-to-report reverse_deal [ dealio ] ;; replace with negate
-  report negate dealio
+to-report choose_from [ options ]
+  ; loop through a list of possible trades
+  let n length options
+  let dUs map evaluate_deal options
+  let bestU max dUs
+  let best filter [U -> U = bestU] dUs
+  report one-of best ; in case two are equivalent, give a random option
 end
-
 
 to trade
   let partner find_partner
   if partner = nobody [ stop ]
-  let this_deal [deal] of out-link-to partner
-  let alt_deal mutate_trade this_deal
-  let chosen_deal choose_best_deal this_deal alt_deal
-  let another_deal mate_deal chosen_deal [deal] of in-link-from partner
-  set chosen_deal choose_best_deal chosen_deal another_deal
-  ;; choose between these trades
+  let option1 [deal] of out-link-to partner
+  let chosen_deal option1
+  let mutate? 1 <= random ticks  ;; mutate more at the start, less as time goes on.
+  if mutate? [
+    let option2 [deal] of one-of other links
+    let options cross_over_mutation option1 option2
+    set chosen_deal choose_from options
+  ]
   undertake chosen_deal
   update chosen_deal
   ask partner [
@@ -146,19 +175,34 @@ to-report evaluate_deal [ dealio ]
   let U utility
   undertake dealio
   let out utility - U
-  undertake reverse_deal dealio
+  undertake negate dealio
   report out
 end
 
+to-report random_deal
+  report n-values goods [ round random-normal 0 5 ]
+end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;; Strategy functions ;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+to update_towards  [ vect ]
+  set prod_plan (map [ [p v] -> max list 1 p + v * learning_rate] prod_plan vect)
+end
+
 to update [ dealio ]
   ; start simple. Make this function more complicated later...
-  let delta (map [ dl -> dl * learning_rate ] dealio)
-  set prod_plan (map [ [prod d ] -> max list 1 prod + d ] prod_plan delta)
+  update_towards dealio
+end
+
+to solo_update_new
+  let new_plan point_mutation_add prod_plan ; I should rename mutate_trade
+  let u1 try_plan new_plan
+  let u2 try_plan prod_plan
+  if u1 > u2 [
+    set prod_plan new_plan
+  ]
 end
 
 to solo_update
@@ -186,8 +230,19 @@ end
 
 
 to mutate_prod
-  let delta mutate_trade n-values goods [ 0 ]
+  let delta point_mutation_add n-values goods [ 0 ]
   set prod_plan all_positive (map [ [prod d ] -> max list 1 prod + d ] prod_plan delta)
+end
+
+to-report try_plan [ plan ]
+  hatch 1 [
+    set clone? true
+    set prod_plan plan
+    produce
+  ]
+  let out [utility] of turtles-here with [ clone? ]
+  ask turtles-here with [ clone? ] [ die ]
+  report out
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -224,16 +279,12 @@ end
 
 
 ;;;;;;;;;;;;;;;;;;;;
-;;;;; Reporters ;;;;utility
+;;;;; Reporters ;;;;
 ;;;;;;;;;;;;;;;;;;;;
-;
-
 
 to-report find_partner
   report rnd:weighted-one-of other turtles with [trade?] [[strength] of link-with myself]
 end
-
-
 
 to-report utility
   report reduce + (map [ [ n u ] -> n ^ u ] endowment u_params)
