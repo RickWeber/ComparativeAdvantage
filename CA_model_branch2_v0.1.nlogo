@@ -45,12 +45,12 @@ end
 ; this should really just be a table...
 to attempt-trade
 ;  let trade rnd:weighted-one-of-list strategies [[p] -> last p]
-  let trade-index random-trade strategies
+  let trade-index rand-trade
   let trade item trade-index strategies
   let partner one-of other traders
   let my-gain evaluate-trade trade
   let their-gain partner-evaluate-trade partner trade
-  set trade replace-item length trade trade (last trade + 1)
+  set trade replace-item (length trade - 1) trade (last trade + 1)
   ;; replace-item stuff?
   if my-gain and their-gain [
     undertake-trade trade
@@ -69,13 +69,13 @@ end
 to-report evaluate-trade [ trade ]
   let give first trade
   let take first butfirst trade
-  report (1) > (time-cost give [ppf] of myself)
+  report (1) > (time-cost give [ppf] of self)
 ;  report
 ;  (time-cost (list take [ppf] of myself)) > (time-cost (list give ppf))
 end
 
 to-report time-cost [basket prod]
-  report reduce + map [[b p] -> b / p ](list basket prod)
+  report reduce + (map [[b p] -> b / p ] basket prod)
 end
 
 to-report partner-evaluate-trade [ partner trade ]
@@ -89,30 +89,31 @@ to undertake-trade [ trade ]
   set endowment (map [[en gv tk] -> en - gv + tk] endowment give take)
 end
 
+
+
+
+
+
+;;; useful reporters
+
 ;;; report a random mix of goods to trade
 to-report random-mix
   report n-values num-goods [random 3]
 end
 
 ;;; report which strategy to attempt using weighted probability of selection
-; I'm pretty sure this is set up all goofy.
-; I want to get an index to make it easier to
-to-report random-trade [strats]
-  let trade rnd:weighted-one-of-list strats [[p] -> last p]
-  let trade-index 0
-  foreach range num-strategies [ i -> if (is-equiv trade item i strats)  [set trade-index i] ]
-  report trade-index
+to-report rand-trade ;; trader-level reporter
+  let p map [[s] -> last s] [strategies] of self
+  let i range length p
+  let X (map list i p)
+  report first rnd:weighted-one-of-list X [[row] -> last row]
 end
-
-
-
-;;; useful reporters
 
 ;;; compare two lists or atoms
 to-report is-equiv [item1 item2]
   if is-list? item1 and is-list? item2 [
     if length item1 != length item2 [report false]
-    (foreach list item1 item2 [show [[a b] -> is-equiv a b]])
+    report reduce and (map [[a b] -> is-equiv a b] item1 item2)
   ]
   report item1 = item2
 end
@@ -310,6 +311,14 @@ NIL
 HORIZONTAL
 
 @#$#@#$#@
+## TODO
+
+Here's what I've got to fix up next...
+
+* Consume some portion of the endowment.
+* Make sure strategies update correctly.
+* Add in some GA component.
+
 ## WHAT IS IT?
 
 (a general understanding of what the model is trying to show or explain)
