@@ -1,15 +1,18 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;; Setup and main loop ;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 extensions [rnd]
-turtles-own [ppf prod_plan endowment u_params trade? learning_rate clone? mutant?]
+turtles-own [ppf prod_plan endowment u_params degree trade? learning_rate clone? mutant?]
 links-own [deal strength]
 globals [trades_done]
 
 to setup
   clear-all
   set trades_done 0
-  let G range goods
   crt agents [
     setxy random-xcor random-ycor
     set trade? true
+    set degree min list (agents - 1) random 10
     set ppf n-values goods [ 1 + random 9 ]
     set prod_plan n-values goods [ 1 ]
     set endowment n-values goods [ 100 ]
@@ -19,13 +22,20 @@ to setup
     set mutant? false
   ]
   ask turtles [
-    create-links-to other turtles [ ; this could me tunable... less connected vs more connected
-      set strength 1 ; this could be where it's tuned
-      set deal random_vect goods 2
-      set color scale-color blue strength 5 30
-      ]
+    create-links-to n-of degree other turtles [
+      set strength 1
+      set deal choose_from_plural both-ends random_deals
+      set color blue
     ]
-  layout-circle turtles 7
+  ]
+;  ask turtles [
+;    create-links-to other turtles [ ; this could me tunable... less connected vs more connected
+;      set strength 1 ; this could be where it's tuned
+;      set deal random_vect goods 10
+;      set color scale-color blue strength 5 30
+;      ]
+;    ]
+  layout-circle turtles max-pxcor * 0.55
   reset-ticks
 end
 
@@ -33,7 +43,7 @@ to go
   if not allow_trade? [ ask turtles [set trade? false ]]
   ask turtles with [ trade? ] [
     produce
-    trade
+    trade_with find_partner
     consume
   ]
   ask turtles with [ not trade? ] [
@@ -45,8 +55,200 @@ to go
     update_trade?
     set prod_plan all_positive prod_plan
   ]
-  ask links [ set color scale-color blue strength 5 30 ]
+  ask links [
+    set color scale-color blue strength 5 30
+  ]
   tick
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;; Trade functions ;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report mutually_beneficial? [ partners dealio ]
+  ;; option 1
+;  report reduce and [ask partners [ evaluate_deal dealio > 0 ]]
+  ;; option 2
+  let out true
+  foreach partners [
+    ask self [
+      set out out and evaluate_deal dealio
+    ]
+  ]
+  report out
+end
+
+to-report choose_from_plural [ partners options ]
+  ask partners [
+    set options filter [ o -> evaluate_deal o > 0 ] options
+  ]
+  if length options = 0 [report choose_from_plural partners cross_over_mutation random_deal random_deal]
+  report options
+end
+
+
+to trade_with [ partner ]
+  if partner = nobody [ stop ]
+  let option1 [deal] of out-link-to partner
+  let chosen_deal option1
+  let mutate? 1 <= random ticks  ;; mutate more at the start, less as time goes on.
+  if mutate? [
+    let option2 [deal] of one-of other links
+    let options cross_over_mutation option1 option2
+    set chosen_deal choose_from options
+  ]
+  ;; decide if partner likes the deal
+  ;; maybe there should be a negotiation that sets the deal?
+  undertake chosen_deal
+  update chosen_deal
+  ask partner [
+    undertake negate chosen_deal
+    update negate chosen_deal
+  ]
+  ask out-link-to partner [
+    set strength strength + 1
+    set deal chosen_deal
+  ]
+end
+
+to undertake [ dealio ]
+  if length dealio != length endowment [ print dealio ]
+  if self = end2 [ set dealio negate dealio ]
+  set endowment (map [ [en dl] -> en + dl ] endowment dealio)
+end
+
+to-report evaluate_deal [ dealio ]
+  ; report change in utility if dealio is undertaken
+  let U utility
+  undertake dealio
+  let out utility - U
+  undertake negate dealio
+  report out
+end
+
+to-report random_deal
+  report n-values goods [ round random-normal 0 5 ]
+end
+
+to-report random_deals
+  report cross_over_mutation random_deal random_deal
+end
+
+to-report choose_from [ options ]
+  ; loop through a list of possible trades
+  let dUs map evaluate_deal options
+  let bestU max dUs
+  if bestU < 0 [ ; ensure deal is utility enhancing
+   set options cross_over_mutation random_deal random_deal
+   report choose_from options
+  ]
+  let best filter [o -> evaluate_deal o = bestU] options
+  report one-of best ; in case two are equivalent, give a random option
+end
+
+to-report find_partner
+  let possible_partners other turtles with [link-neighbor? myself]
+  ; look at link-neighbors ready to trade, with a bias towards agents I've successfully traded with before.
+  report rnd:weighted-one-of possible_partners with [trade?] [[strength] of in-link-from myself]
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;; Strategy functions ;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to update_towards  [ vect ]
+  set prod_plan (map [ [p v] -> max list 1 p + v * learning_rate] prod_plan vect)
+end
+
+to update [ dealio ]
+  ; start simple. Make this function more complicated later...
+  update_towards dealio
+end
+
+to solo_update_new
+  let new_plan point_mutation_add prod_plan ; I should rename mutate_trade
+  let u1 try_plan new_plan
+  let u2 try_plan prod_plan
+  if u1 > u2 [
+    set prod_plan new_plan
+  ]
+end
+
+to solo_update
+  ; try a random mutation, see if it increases utility, then
+  ; adopt the mutation if it results in greater utility.
+  let delta prod_plan
+  hatch 1 [
+    set clone? true
+    set mutant? true
+    mutate_prod
+    set delta vect_diff delta prod_plan ; diff of prod_plan and initial prod_plan
+    produce
+  ]
+  hatch 1 [
+    set clone? true
+    produce
+  ]
+  let u_change mean [ utility ] of turtles-here with [ clone? and mutant? ]
+  let u_base mean [ utility ] of turtles-here with [ clone? and not mutant? ]
+  if u_change > u_base [
+   set prod_plan vect_add prod_plan delta
+  ]
+  ask turtles with [clone?] [die]
+end
+
+to mutate_prod
+  let delta point_mutation_add n-values goods [ 0 ]
+  set prod_plan all_positive (map [ [prod d ] -> max list 1 prod + d ] prod_plan delta)
+end
+
+to-report try_plan [ plan ]
+  hatch 1 [
+    set clone? true
+    set prod_plan plan
+    produce
+  ]
+  let out [utility] of turtles-here with [ clone? ]
+  ask turtles-here with [ clone? ] [ die ]
+  report out
+end
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;; Procedures ;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to update_trade?
+  ; if min endowment isn't high enough, don't trade
+  let M min [endowment] of self
+  set trade? M > 25
+end
+
+to produce
+;  let sumP sum prod_plan
+;  let production (map [ prod -> prod / sumP ] prod_plan)
+;  let production soft_max prod_plan
+  let production (map [ [plan poss] -> plan * poss ] softmax prod_plan ppf)
+  set endowment (map [ [en pr] -> en + pr ] endowment production)
+end
+
+to consume
+  ; eat up some of the resources
+end
+
+
+;;;;;;;;;;;;;;;;;;;;
+;;;;; Reporters ;;;;
+;;;;;;;;;;;;;;;;;;;;
+
+to-report utility
+  report reduce + (map [ [ n u ] -> n ^ u ] endowment u_params)
+end
+
+to-report specialization
+  let top max softmax prod_plan
+  let base 1 / goods
+  report top / base
 end
 
 
@@ -116,184 +318,15 @@ to-report point_mutation_shrink [ vect ]
 end
 
 to-report cross_over_mutation [ vect1 vect2 ]
-  let m random length vect1
+  let m max list 1 random length vect1
   ; assume vects are the same length
   let a1 sublist vect1 0 m
   let a2 sublist vect1 m length vect1
   let b1 sublist vect2 0 m
   let b2 sublist vect2 m length vect2
-  let vect3 list a1 b2
-  let vect4 list b1 a2
+  let vect3 sentence a1 b2
+  let vect4 sentence b1 a2
   report (list vect1 vect2 vect3 vect4)
-end
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;; Trade functions ;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-to-report choose_from [ options ]
-  ; loop through a list of possible trades
-  let n length options
-  let dUs map evaluate_deal options
-  let bestU max dUs
-  let best filter [U -> U = bestU] dUs
-  report one-of best ; in case two are equivalent, give a random option
-end
-
-to trade
-  let partner find_partner
-  if partner = nobody [ stop ]
-  let option1 [deal] of out-link-to partner
-  let chosen_deal option1
-  let mutate? 1 <= random ticks  ;; mutate more at the start, less as time goes on.
-  if mutate? [
-    let option2 [deal] of one-of other links
-    let options cross_over_mutation option1 option2
-    set chosen_deal choose_from options
-  ]
-  undertake chosen_deal
-  update chosen_deal
-  ask partner [
-    undertake negate chosen_deal
-    update negate chosen_deal
-  ]
-  ask out-link-to partner [
-    set strength strength + 1
-    set deal chosen_deal
-  ]
-end
-
-to undertake [ dealio ]
-  set endowment (map [ [en dl] -> en + dl ] endowment dealio)
-end
-
-to-report choose_best_deal [ deal1 deal2 ]
-  report deal1
-end
-
-to-report evaluate_deal [ dealio ]
-  let U utility
-  undertake dealio
-  let out utility - U
-  undertake negate dealio
-  report out
-end
-
-to-report random_deal
-  report n-values goods [ round random-normal 0 5 ]
-end
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;; Strategy functions ;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-to update_towards  [ vect ]
-  set prod_plan (map [ [p v] -> max list 1 p + v * learning_rate] prod_plan vect)
-end
-
-to update [ dealio ]
-  ; start simple. Make this function more complicated later...
-  update_towards dealio
-end
-
-to solo_update_new
-  let new_plan point_mutation_add prod_plan ; I should rename mutate_trade
-  let u1 try_plan new_plan
-  let u2 try_plan prod_plan
-  if u1 > u2 [
-    set prod_plan new_plan
-  ]
-end
-
-to solo_update
-  ; try a random mutation, see if it increases utility, then
-  ; adopt the mutation if it results in greater utility.
-  let delta prod_plan
-  hatch 1 [
-    set clone? true
-    set mutant? true
-    mutate_prod
-    set delta vect_diff delta prod_plan ; diff of prod_plan and initial prod_plan
-    produce
-  ]
-  hatch 1 [
-    set clone? true
-    produce
-  ]
-  let u_change mean [ utility ] of turtles-here with [ clone? and mutant? ]
-  let u_base mean [ utility ] of turtles-here with [ clone? and not mutant? ]
-  if u_change > u_base [
-   set prod_plan vect_add prod_plan delta
-  ]
-  ask turtles with [clone?] [die]
-end
-
-
-to mutate_prod
-  let delta point_mutation_add n-values goods [ 0 ]
-  set prod_plan all_positive (map [ [prod d ] -> max list 1 prod + d ] prod_plan delta)
-end
-
-to-report try_plan [ plan ]
-  hatch 1 [
-    set clone? true
-    set prod_plan plan
-    produce
-  ]
-  let out [utility] of turtles-here with [ clone? ]
-  ask turtles-here with [ clone? ] [ die ]
-  report out
-end
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;
-;;;;; Procedures ;;;;
-;;;;;;;;;;;;;;;;;;;;;
-
-to update_trade?
-  ; if min endowment isn't high enough, don't trade
-  let M min [endowment] of self
-  set trade? M > 25
-end
-
-to produce
-;  let sumP sum prod_plan
-;  let production (map [ prod -> prod / sumP ] prod_plan)
-;  let production soft_max prod_plan
-  let production (map [ [plan poss] -> plan * poss ] softmax prod_plan ppf)
-  set endowment (map [ [en pr] -> en + pr ] endowment production)
-end
-
-to consume
-  ; eat up some of the resources
-end
-
-
-;;;;;;;;;;;;;;;;;;;;
-;;;;; Reporters ;;;;
-;;;;;;;;;;;;;;;;;;;;
-
-to-report find_partner
-  report rnd:weighted-one-of other turtles with [trade?] [[strength] of link-with myself]
-end
-
-to-report utility
-  report reduce + (map [ [ n u ] -> n ^ u ] endowment u_params)
-end
-
-to-report specialization
-  let top max softmax prod_plan
-  let base 1 / goods
-  report top / base
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -366,7 +399,7 @@ agents
 agents
 2
 50
-2.0
+50.0
 1
 1
 NIL
