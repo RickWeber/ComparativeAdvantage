@@ -317,7 +317,8 @@ Here's what I've got to fix up next...
 
 * Consume some portion of the endowment.
 * Make sure strategies update correctly.
-* Add in some GA component.
+* Add in some GA component?
+* Allow agents to update their production plans in the direction of their area of comparative advantage.
 
 ## WHAT IS IT?
 
